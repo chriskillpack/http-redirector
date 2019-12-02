@@ -9,15 +9,6 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
-type redirect struct {
-	reqHost string
-	redir   string
-}
-
-var redirects = []redirect{
-	{"eg", "https://google.com"},
-}
-
 type tomlConfig struct {
 	Redirects map[string]string
 }
