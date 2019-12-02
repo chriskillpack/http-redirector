@@ -15,13 +15,16 @@ type tomlConfig struct {
 
 func main() {
 	configFile := flag.String("config", "config.toml", "Path to configuration file")
+	port := flag.Int("port", 80, "Redirect server port")
 	flag.Parse()
 
+	log.Printf("Reading config from %s", *configFile)
 	var config tomlConfig
 	if _, err := toml.DecodeFile(*configFile, &config); err != nil {
 		fmt.Println(err)
 		return
 	}
+	log.Printf("Read %d redirects", len(config.Redirects))
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if redir, ok := config.Redirects[r.Host]; ok {
@@ -31,5 +34,6 @@ func main() {
 			http.NotFound(w, r)
 		}
 	})
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	log.Printf("Starting server on port %d", *port)
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", *port), nil))
 }
