@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/BurntSushi/toml"
 	"github.com/kardianos/service"
@@ -18,20 +19,28 @@ type tomlConfig struct {
 type program struct{}
 
 var (
-	configFile = flag.String("config", "config.toml", "Path to configuration file")
+	configFile = flag.String("config", "http-redirector.toml", "Path to configuration file")
 	port       = flag.Int("port", 80, "Redirect server port")
 	svcControl = flag.String("service", "", fmt.Sprintf("Service action, from %v", service.ControlAction))
 
 	config tomlConfig
 	server *http.Server
+	logger service.Logger
 )
 
 func (p *program) Start(s service.Service) error {
-	log.Printf("Reading config from %s", *configFile)
-	if _, err := toml.DecodeFile(*configFile, &config); err != nil {
-		log.Fatal(err)
+	if service.Interactive() {
+		logger.Info("Running from terminal")
+	} else {
+		logger.Info("Running under terminal manager")
 	}
-	log.Printf("Read %d redirects", len(config.Redirects))
+
+	logger.Infof("Reading config from %s", *configFile)
+	if _, err := toml.DecodeFile(*configFile, &config); err != nil {
+		logger.Error(err)
+		return err
+	}
+	logger.Infof("Read %d redirects", len(config.Redirects))
 
 	go p.run()
 	return nil
@@ -46,35 +55,47 @@ func (p *program) run() {
 			http.NotFound(w, r)
 		}
 	})
-	log.Printf("Starting server on port %d", *port)
+	logger.Infof("Starting server on port %d", *port)
 
 	server = &http.Server{Addr: fmt.Sprintf(":%d", *port)}
 	if err := server.ListenAndServe(); err != http.ErrServerClosed {
-		log.Fatalf("HTTP server ListenAndServe: %v", err)
+		logger.Errorf("HTTP server ListenAndServe: %v", err)
+		return
 	}
 }
 
 func (p *program) Stop(s service.Service) error {
 	if err := server.Shutdown(context.Background()); err != nil {
-		log.Printf("HTTP server Shutdown: %v", err)
+		logger.Infof("HTTP server Shutdown: %v", err)
 	}
 
 	return nil
 }
 
 func main() {
-	svcConfig := &service.Config{
-		Name:        "http-redirector",
-		DisplayName: "HTTP-redirector",
-		Description: "Redirects HTTP traffic on the local LAN",
+	pwd, err := os.Getwd()
+	if err != nil {
+		log.Fatal("Unable to get path to current directory")
 	}
+	flag.Parse()
+
+	svcConfig := &service.Config{
+		Name:             "http-redirector",
+		DisplayName:      "HTTP-redirector",
+		Description:      "Redirects HTTP traffic on the local LAN",
+		WorkingDirectory: pwd,
+		Arguments:        []string{"-config", *configFile},
+	}
+
 	prg := &program{}
 	s, err := service.New(prg, svcConfig)
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	flag.Parse()
+	if logger, err = s.Logger(nil); err != nil {
+		log.Fatal(err)
+	}
 
 	if *svcControl != "" {
 		if err := service.Control(s, *svcControl); err != nil {

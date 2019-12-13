@@ -1,2 +1,4 @@
-# Exclude binaries
+# Exclude binaries...
 /http-redirector*
+# ...but keep the config file
+!/http-redirector.toml
