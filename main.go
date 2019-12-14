@@ -7,6 +7,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"sync"
+	"syscall"
 
 	"github.com/BurntSushi/toml"
 	"github.com/kardianos/service"
@@ -24,30 +27,51 @@ var (
 	svcControl = flag.String("service", "", fmt.Sprintf("Service action, from %v", service.ControlAction))
 
 	config tomlConfig
+	mu     sync.RWMutex
+
 	server *http.Server
 	logger service.Logger
 )
 
-func (p *program) Start(s service.Service) error {
-	if service.Interactive() {
-		logger.Info("Running from terminal")
-	} else {
-		logger.Info("Running under terminal manager")
-	}
-
+func readConfig() error {
 	logger.Infof("Reading config from %s", *configFile)
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	config = tomlConfig{} // clear out config
 	if _, err := toml.DecodeFile(*configFile, &config); err != nil {
 		logger.Error(err)
 		return err
 	}
 	logger.Infof("Read %d redirects", len(config.Redirects))
 
+	return nil
+}
+
+func (p *program) Start(s service.Service) error {
+	if service.Interactive() {
+		logger.Info("Running from terminal")
+	} else {
+		logger.Info("Running under service manager")
+	}
+
+	if err := readConfig(); err != nil {
+		return err
+	}
+
 	go p.run()
 	return nil
 }
 
 func (p *program) run() {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGHUP)
+
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		mu.RLock()
+		defer mu.RUnlock()
+
 		if redir, ok := config.Redirects[r.Host]; ok {
 			w.Header().Set("Location", redir)
 			w.WriteHeader(http.StatusTemporaryRedirect)
@@ -56,6 +80,16 @@ func (p *program) run() {
 		}
 	})
 	logger.Infof("Starting server on port %d", *port)
+
+	go func() {
+		// Reload config when SIGHUP is received
+		for {
+			<-c
+			if err := readConfig(); err != nil {
+				logger.Error(err)
+			}
+		}
+	}()
 
 	server = &http.Server{Addr: fmt.Sprintf(":%d", *port)}
 	if err := server.ListenAndServe(); err != http.ErrServerClosed {
