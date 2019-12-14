@@ -20,7 +20,7 @@ Either `go build http-redirector` or use `build.sh` (which also builds an ARM ve
 
 ## To run as a service
 
-```
+```bash
 ./http-redirector -service install
 ./http-redirector -service start
 ```
@@ -29,4 +29,12 @@ When using the option `-service install` the program will copy the value of `-co
 
 ```
 ./http-redirector -service install -config /path/to/myconfig.toml
+```
+
+## Reload config
+
+Service can reload config without needing a restart by sending SIGHUP:
+
+```bash
+kill -HUP {PID}
 ```
