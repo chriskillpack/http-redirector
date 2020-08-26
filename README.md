@@ -1,8 +1,14 @@
 # HTTP Redirector
 
-A very simple HTTP redirector intended for private networks.
+A very simple HTTP redirector and terminating HTTPS proxy intended for private networks. I wrote this for personal use on my home network.
 
-It only redirects based on the host, incoming request to host `foo./` is redirected to `something.else:1234/bar/cat`. It supports temporary and permanent redirects.
+### Redirects
+It only redirects based on the host, incoming request to host `foo./` is redirected to `something.else:1234/bar/cat`. It only supports temporary redirects.
+
+### HTTPS proxy
+Allows you to serve an HTTP site as HTTPS, e.g. `https://my-site-as-https.com` will be proxied to `http://my-http-site.com`.
+
+_TODO_ - Support path arithmetic, separate SSL certs.
 
 ## To build
 
@@ -21,9 +27,9 @@ When using the option `-service install` the program will copy the value of `-co
 ./http-redirector -service install -config /path/to/myconfig.toml
 ```
 
-## Reload config
+## Config hot reload
 
-Service can reload config without needing a restart by sending SIGHUP:
+Sending the SIGHUP signal to the service will cause it to reload and apply configuration:
 
 ```bash
 kill -HUP {PID}

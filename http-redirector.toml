@@ -1,2 +1,12 @@
 [redirects]
 "g." = "https://google.com"
+
+[https_proxy]
+default_cert = "/path/to/proxy_cert.pem"
+default_key = "/path/to/proxy_cert-key.pem"
+  [[https_proxy.entry]]
+    incoming = "localhost"
+    target = "http://win.home:1234"
+  [[https_proxy.entry]]
+    incoming = "cat.home"
+    target = "http://win.home:2345"
