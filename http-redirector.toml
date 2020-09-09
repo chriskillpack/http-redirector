@@ -7,6 +7,9 @@ default_key = "/path/to/proxy_cert-key.pem"
   [[https_proxy.entry]]
     incoming = "localhost"
     target = "http://win.home:1234"
+    # uncomment cert and key to specify a specific cert for entry
+    # cert = "/path/to/certs/winhome.pem"
+    # key = "/path/to/certs/winhome-key.pem"
   [[https_proxy.entry]]
     incoming = "cat.home"
     target = "http://win.home:2345"

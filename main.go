@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"log"
@@ -17,15 +18,23 @@ import (
 	"github.com/kardianos/service"
 )
 
-type proxyEntry struct {
+type cfgProxy struct {
 	Incoming string
 	Target   string
+
+	Cert string
+	Key  string
+}
+
+type proxyEntry struct {
+	URL         *url.URL
+	Certificate *tls.Certificate
 }
 
 type httpsProxy struct {
-	DefaultCert string       `toml:"default_cert"`
-	DefaultKey  string       `toml:"default_key"`
-	Entries     []proxyEntry `toml:"entry"`
+	DefaultCert string     `toml:"default_cert"`
+	DefaultKey  string     `toml:"default_key"`
+	Entries     []cfgProxy `toml:"entry"`
 }
 
 type tomlConfig struct {
@@ -41,9 +50,10 @@ var (
 	sslPort    = flag.Int("sslport", 443, "HTTPS proxy server port")
 	svcControl = flag.String("service", "", fmt.Sprintf("Service action, from %v", service.ControlAction))
 
-	config   tomlConfig
-	proxyMap map[string]*url.URL
-	mu       sync.RWMutex
+	config      tomlConfig
+	proxyMap    map[string]*proxyEntry
+	defaultCert *tls.Certificate
+	mu          sync.RWMutex
 
 	server    *http.Server
 	sslServer *http.Server
@@ -58,19 +68,42 @@ func readConfig() error {
 	defer mu.Unlock()
 
 	config = tomlConfig{} // clear out config
-	if _, err := toml.DecodeFile(*configFile, &config); err != nil {
+	var err error
+	if _, err = toml.DecodeFile(*configFile, &config); err != nil {
 		logger.Error(err)
 		return err
 	}
+	if config.HTTPSProxy.DefaultCert != "" && config.HTTPSProxy.DefaultKey != "" {
+		var cert tls.Certificate
+		if cert, err = tls.LoadX509KeyPair(config.HTTPSProxy.DefaultCert, config.HTTPSProxy.DefaultKey); err != nil {
+			logger.Infof("Could not load cert %s", config.HTTPSProxy.DefaultCert)
+			return err
+		}
+		defaultCert = &cert
+	}
+
 	if len(config.HTTPSProxy.Entries) > 0 {
-		proxyMap = make(map[string]*url.URL)
-		for _, pe := range config.HTTPSProxy.Entries {
-			if url, err := url.Parse(pe.Target); err == nil {
-				proxyMap[pe.Incoming] = url
-			} else {
-				logger.Infof("Could not parse %s\n", pe.Target)
+		proxyMap = make(map[string]*proxyEntry)
+		for _, ent := range config.HTTPSProxy.Entries {
+			pe := proxyEntry{}
+
+			var url *url.URL
+			if url, err = url.Parse(ent.Target); err != nil {
+				logger.Infof("Could not parse %s\n", ent.Target)
 				return err
 			}
+			pe.URL = url
+
+			if ent.Cert != "" && ent.Key != "" {
+				var cert tls.Certificate
+				if cert, err = tls.LoadX509KeyPair(ent.Cert, ent.Key); err != nil {
+					logger.Infof("Could not load cert %s", ent.Cert)
+					return err
+				}
+				pe.Certificate = &cert
+			}
+
+			proxyMap[ent.Incoming] = &pe
 		}
 	} else {
 		proxyMap = nil
@@ -108,6 +141,17 @@ func startRedirector() {
 	srvWg.Done()
 }
 
+func proxyGetCert(chi *tls.ClientHelloInfo) (*tls.Certificate, error) {
+	mu.RLock()
+	defer mu.RUnlock()
+
+	if pe, ok := proxyMap[chi.ServerName]; ok && pe.Certificate != nil {
+		return pe.Certificate, nil
+	}
+
+	return defaultCert, nil
+}
+
 func startSslProxy() {
 	logger.Infof("Start HTTPS proxy on port %d", *sslPort)
 
@@ -117,17 +161,19 @@ func startSslProxy() {
 		defer mu.RUnlock()
 
 		if pe, ok := proxyMap[req.Host]; ok {
-			req.URL.Scheme = pe.Scheme
-			req.URL.Host = pe.Host
+			req.URL.Scheme = pe.URL.Scheme
+			req.URL.Host = pe.URL.Host
 		}
 	}
 
 	sslServer = &http.Server{
 		Addr:    fmt.Sprintf(":%d", *sslPort),
 		Handler: rp,
+		TLSConfig: &tls.Config{
+			GetCertificate: proxyGetCert,
+		},
 	}
-	err := sslServer.ListenAndServeTLS(config.HTTPSProxy.DefaultCert, config.HTTPSProxy.DefaultKey)
-	if err != http.ErrServerClosed {
+	if err := sslServer.ListenAndServeTLS("", ""); err != http.ErrServerClosed {
 		logger.Errorf("HTTPS server ListenAndServe: %v", err)
 		return
 	}

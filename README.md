@@ -6,9 +6,9 @@ A very simple HTTP redirector and terminating HTTPS proxy intended for private n
 It only redirects based on the host, incoming request to host `foo./` is redirected to `something.else:1234/bar/cat`. It only supports temporary redirects.
 
 ### HTTPS proxy
-Allows you to serve an HTTP site as HTTPS, e.g. `https://my-site-as-https.com` will be proxied to `http://my-http-site.com`.
+Allows you to serve an HTTP site as HTTPS, e.g. `https://my-site-as-https.com` will be proxied to `http://my-http-site.com`. The proxy can use a custom HTTPS cert for a proxy entry using `cert` and `key`.
 
-_TODO_ - Support path arithmetic, separate SSL certs.
+_TODO_ - Support path arithmetic
 
 ## To build
 
